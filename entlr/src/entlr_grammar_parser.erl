@@ -21,7 +21,8 @@ get_entries( Filename ) ->
 			{error, R};
 		{grammar, Grammar_Name} ->
 			{Rules, Tokens} = get_rules_tokens( R_Lines, [], [] ),
-			{Grammar_Name, Rules, Tokens}
+			Resolved_Tokens = resolve_tokens( Tokens, [] ),
+			{Grammar_Name, Rules, Resolved_Tokens}
 	end.
 	
 	
@@ -77,8 +78,7 @@ eval_token( Line ) ->
 			case length( Name_Tokens ) == 1 of
 				true ->
 					[Token_Name | _ ] = Name_Tokens,
-					C = lists:nth(1, Token_Name),
-					case C >= $A andalso C =< $Z of
+					case is_token( Token_Name ) of
 						true ->
 							{Token_Name, Value_Part };
 						false ->
@@ -101,8 +101,7 @@ eval_rule( Line ) ->
 			case length( Name_Tokens ) == 1 of
 				true ->
 					[Rule_Name | _ ] = Name_Tokens,
-					C = lists:nth(1, Rule_Name),
-					case C >= $a andalso C =< $z of
+					case is_rule( Rule_Name ) of
 						true ->
 							{Rule_Name, Value_Part };
 						false ->
@@ -290,4 +289,54 @@ eval_read( Dev, Cur_Location ) ->
 		{ok, C } ->
 			{ok, C }
 	end.
-	
+
+resolve_tokens( [], Resolved_Tokens ) ->
+	lists:reverse( Resolved_Tokens );
+resolve_tokens( [ {Name, Value} | Unresolved_Tokens], Resolved_Tokens ) ->
+	case get_refs( Value ) of
+		[] ->
+			N_Resolved_Tokens = [ {Name, Value} | Resolved_Tokens ],
+			resolve_tokens( Unresolved_Tokens, N_Resolved_Tokens );
+		Refs ->
+			case resolve_token( Refs, Value, Unresolved_Tokens, Resolved_Tokens ) of
+				{error, ref_not_resolved } ->
+					N_Tokens = lists:append( Unresolved_Tokens, [ {Name, Value} ] ),
+					resolve_tokens( N_Tokens, Resolved_Tokens );
+				{ok, N_Value} ->
+					N_Resolved_Tokens = [ {Name, N_Value} | Resolved_Tokens ],
+					resolve_tokens( Unresolved_Tokens, N_Resolved_Tokens )
+			end
+	end.
+
+resolve_token( [], N_Value, _Unresolved_Token, _ ) ->
+	{ok, N_Value};
+resolve_token( [Ref | Rest], Value, Unresolved_Tokens, Resolved_Tokens ) ->
+	case is_token( Ref ) of
+		false ->
+			resolve_token( Rest, Value, Unresolved_Tokens, Resolved_Tokens );
+		true ->
+			case lists:keyfind( Ref, 1, Resolved_Tokens ) of
+				false ->
+					case lists:keyfind( Ref, 1, Unresolved_Tokens ) of
+						false ->
+							resolve_token( Rest, Value, Unresolved_Tokens, Resolved_Tokens );
+						_ ->
+							{error, ref_not_resolved}
+					end;
+				{_, T_Value } ->
+					N_Value = re:replace( Value, Ref, T_Value, [ {return, list} ] ),
+					resolve_token( Rest, N_Value, Unresolved_Tokens, Resolved_Tokens )
+			end
+	end.
+
+get_refs( Value ) ->
+	W_List = re:split( Value, "[^A-Z^a-z]+", [{return, list}, unicode] ),
+	[ R || R <- W_List, R =/= [] ].
+
+is_token( Token_Name ) ->
+	C = lists:nth(1, Token_Name),
+	C >= $A andalso C =< $Z.
+
+is_rule( Rule_Name ) ->
+	C = lists:nth(1, Rule_Name),
+	C >= $a andalso C =< $z.
