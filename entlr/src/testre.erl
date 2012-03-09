@@ -15,6 +15,72 @@
 %%
 %% API Functions
 %%
+parse_refs( [], Cur_Ref, Refs, C ) when (C >= $A andalso C =< $Z) orelse (C >= $z andalso C =< $z)->
+	N_Cur_Ref = [C | Cur_Ref],
+	Ref = lists:flatten( lists:reverse( N_Cur_Ref ) ),
+	lists:reverse( [Ref | Refs] );
+parse_refs( [], Cur_Ref, Refs, _ ) ->
+	case Cur_Ref of
+		[] ->
+			lists:reverse(Refs);
+		_ ->
+			Ref = lists:flatten( lists:reverse( Cur_Ref ) ),
+			lists:reverse( [Ref | Refs] )
+	end;
+parse_refs( [C | Rest ], Cur_Ref, Refs, none ) ->
+	parse_refs( Rest, Cur_Ref, Refs, C );
+parse_refs( Rest, Cur_Ref, Refs, 123 ) ->
+	%This is the case for {. Ignore until } is found
+	%123 is the asci value for '{'
+	%125 is the asci value for '}'
+	N_Refs = case Cur_Ref of
+				 [] ->
+					 Refs;
+				 _ ->
+					 Ref = lists:flatten( lists:reverse( Cur_Ref ) ),
+					 [Ref | Refs]
+			 end,
+	case ignore_until( Rest, 125 ) of
+		{error, not_found } ->
+			parse_refs( [], [], N_Refs, none );
+		{ok, Remaining } ->
+			parse_refs( Remaining, [], N_Refs, none )
+	end;
+parse_refs( Rest, Cur_Ref, Refs, 39 ) ->
+	%This is the case for '. Ignore until closing ' is found
+	%39 is the asci value for '
+	N_Refs = case Cur_Ref of
+				 [] ->
+					 Refs;
+				 _ ->
+					 Ref = lists:flatten( lists:reverse( Cur_Ref ) ),
+					 [Ref | Refs]
+			 end,
+	case ignore_until( Rest, 39 ) of
+		{error, not_found } ->
+			parse_refs( [], [], N_Refs, none );
+		{ok, Remaining } ->
+			parse_refs( Remaining, [], N_Refs, none )
+	end;
+parse_refs( [C | Rest ], Cur_Ref, Refs, C1 ) when (C1 >= $A andalso C1 =< $Z) orelse (C1 >= $z andalso C1 =< $z) ->
+	N_Cur_Ref = [C1|Cur_Ref],
+	parse_refs( Rest, N_Cur_Ref, Refs, C );
+parse_refs( [C | Rest ], Cur_Ref, Refs, _ ) -> 
+	case Cur_Ref of
+		[] ->
+			parse_refs( Rest, [], Refs, C );
+		_ ->
+			Ref = lists:flatten( lists:reverse( Cur_Ref ) ),
+			parse_refs( Rest, [], [Ref | Refs], C )
+	end.
+
+ignore_until( [], _ ) ->
+	{error, not_found};
+ignore_until( [C | Rest], C ) ->
+	{ok, Rest};
+ignore_until( [_ | Rest], C ) ->
+	ignore_until( Rest, C ).
+
 match( Input, RE ) ->
 	Len = length( Input ),
 	case re:run(Input, RE) of
