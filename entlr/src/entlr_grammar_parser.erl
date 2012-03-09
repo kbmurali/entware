@@ -22,7 +22,10 @@ get_entries( Filename ) ->
 		{grammar, Grammar_Name} ->
 			{Rules, Tokens} = get_rules_tokens( R_Lines, [], [] ),
 			Resolved_Tokens = resolve_tokens( Tokens, [] ),
-			{Grammar_Name, Rules, Resolved_Tokens}
+			Token_RE_List = convert_to_re(Resolved_Tokens, false, [] ),
+			Resolved_Rules = resolve_rules( Rules, Resolved_Tokens, [] ),
+			Rule_RE_List = convert_to_re(Resolved_Rules, true, [] ),
+			{Grammar_Name, Rule_RE_List, Token_RE_List}
 	end.
 	
 	
@@ -126,7 +129,8 @@ split_entry( [ C | Rest ], Acc ) ->
 read( Dev, Cur_Location, Cur_Line, Acc, none, none, none ) ->
 	case eval_read( Dev, Cur_Location ) of
 		{ok, ";" } ->
-			Line = lists:concat( lists:reverse( Cur_Line ) ),
+			L = lists:concat( lists:reverse( Cur_Line ) ),
+			Line = string:strip( L, both ),
 			N_Acc = [Line | Acc ],
 			read( Dev, Cur_Location + 1, [], N_Acc, none, none, none );
 		{ok, C } ->
@@ -290,12 +294,66 @@ eval_read( Dev, Cur_Location ) ->
 			{ok, C }
 	end.
 
+resolve_rules( [], _Resolved_Tokens, Resolved_Rules ) ->
+	lists:reverse( Resolved_Rules );
+resolve_rules( [ {Name, Value} | Unresolved_Rules ], Resolved_Tokens, Resolved_Rules ) ->
+	case get_refs( Value ) of
+		[] ->
+			R_Value = string:strip( Value, both),
+			N_Resolved_Rules = [ {Name, R_Value} | Resolved_Rules ],
+			resolve_rules( Unresolved_Rules, Resolved_Tokens, N_Resolved_Rules );
+		Refs ->
+			case resolve_rule( Refs, Value, Unresolved_Rules, Resolved_Tokens, Resolved_Rules ) of
+				{error, invalid_ref} ->
+					throw( {error, invalid_ref, Name ++ " : " ++ Value } );
+				{error, ref_not_resolved } ->
+					N_Unresolved_Rules = lists:append( Unresolved_Rules, [ {Name, Value} ] ),
+					resolve_rules( N_Unresolved_Rules, Resolved_Tokens, Resolved_Rules );
+				{ok, N_Value} ->
+					N_Resolved_Rules = [ {Name, N_Value} | Resolved_Rules ],
+					resolve_rules( Unresolved_Rules, Resolved_Tokens, N_Resolved_Rules )
+			end
+	end.
+
+resolve_rule( [], Value, _Unresolved_Rules, _Resolved_Tokens, _Resolved_Rules ) ->
+	{ok, Value};
+resolve_rule( [Ref | Rest ], Value, Unresolved_Rules, Resolved_Tokens, Resolved_Rules ) ->
+	case is_token( Ref ) of
+		false ->
+			case is_rule( Ref ) of
+				false ->
+					resolve_rule( Rest, Value, Unresolved_Rules, Resolved_Tokens, Resolved_Rules );
+				true ->
+					case lists:keyfind( Ref, 1, Resolved_Rules ) of
+						false ->
+							case lists:keyfind( Ref, 1, Unresolved_Rules ) of
+								false ->
+									{error, invalid_ref};
+								_ ->
+									{error, ref_not_resolved}
+							end;
+						{_, T_Value } ->
+							N_Value = re:replace( Value, Ref, T_Value, [ {return, list} ] ),
+							resolve_rule( Rest, N_Value, Unresolved_Rules, Resolved_Tokens, Resolved_Rules )
+					end
+			end;
+		true ->
+			case lists:keyfind( Ref, 1, Resolved_Tokens ) of
+				false ->
+					{error, invalid_ref};
+				{_, T_Value } ->
+					N_Value = re:replace( Value, Ref, T_Value, [ {return, list} ] ),
+					resolve_rule( Rest, N_Value, Unresolved_Rules, Resolved_Tokens, Resolved_Rules )
+			end
+	end.
+
 resolve_tokens( [], Resolved_Tokens ) ->
 	lists:reverse( Resolved_Tokens );
 resolve_tokens( [ {Name, Value} | Unresolved_Tokens], Resolved_Tokens ) ->
 	case get_refs( Value ) of
 		[] ->
-			N_Resolved_Tokens = [ {Name, Value} | Resolved_Tokens ],
+			R_Value = string:strip( Value, both),
+			N_Resolved_Tokens = [ {Name, R_Value} | Resolved_Tokens ],
 			resolve_tokens( Unresolved_Tokens, N_Resolved_Tokens );
 		Refs ->
 			case resolve_token( Refs, Value, Unresolved_Tokens, Resolved_Tokens ) of
@@ -329,9 +387,81 @@ resolve_token( [Ref | Rest], Value, Unresolved_Tokens, Resolved_Tokens ) ->
 			end
 	end.
 
+convert_to_re( [], _Shorten_WS, Acc ) ->
+	lists:reverse( Acc );
+convert_to_re( [ {Name, Value} | Rest ], Shorten_WS, Acc ) ->
+	RE = entlr_util:to_re( Value, Shorten_WS ),
+	convert_to_re( Rest, Shorten_WS, [ {Name, RE} | Acc ] ).
+
 get_refs( Value ) ->
-	W_List = re:split( Value, "[^A-Z^a-z]+", [{return, list}, unicode] ),
-	[ R || R <- W_List, R =/= [] ].
+	parse_refs( Value, [], [], none ).
+
+
+parse_refs( [], Cur_Ref, Refs, C ) when (C >= $A andalso C =< $Z) orelse (C >= $z andalso C =< $z)->
+	N_Cur_Ref = [C | Cur_Ref],
+	Ref = lists:flatten( lists:reverse( N_Cur_Ref ) ),
+	lists:reverse( [Ref | Refs] );
+parse_refs( [], Cur_Ref, Refs, _ ) ->
+	case Cur_Ref of
+		[] ->
+			lists:reverse(Refs);
+		_ ->
+			Ref = lists:flatten( lists:reverse( Cur_Ref ) ),
+			lists:reverse( [Ref | Refs] )
+	end;
+parse_refs( [C | Rest ], Cur_Ref, Refs, none ) ->
+	parse_refs( Rest, Cur_Ref, Refs, C );
+parse_refs( Rest, Cur_Ref, Refs, 123 ) ->
+	%This is the case for {. Ignore until } is found
+	%123 is the asci value for '{'
+	%125 is the asci value for '}'
+	N_Refs = case Cur_Ref of
+				 [] ->
+					 Refs;
+				 _ ->
+					 Ref = lists:flatten( lists:reverse( Cur_Ref ) ),
+					 [Ref | Refs]
+			 end,
+	case ignore_until( Rest, 125 ) of
+		{error, not_found } ->
+			parse_refs( [], [], N_Refs, none );
+		{ok, Remaining } ->
+			parse_refs( Remaining, [], N_Refs, none )
+	end;
+parse_refs( Rest, Cur_Ref, Refs, 39 ) ->
+	%This is the case for '. Ignore until closing ' is found
+	%39 is the asci value for '
+	N_Refs = case Cur_Ref of
+				 [] ->
+					 Refs;
+				 _ ->
+					 Ref = lists:flatten( lists:reverse( Cur_Ref ) ),
+					 [Ref | Refs]
+			 end,
+	case ignore_until( Rest, 39 ) of
+		{error, not_found } ->
+			parse_refs( [], [], N_Refs, none );
+		{ok, Remaining } ->
+			parse_refs( Remaining, [], N_Refs, none )
+	end;
+parse_refs( [C | Rest ], Cur_Ref, Refs, C1 ) when (C1 >= $A andalso C1 =< $Z) orelse (C1 >= $z andalso C1 =< $z) ->
+	N_Cur_Ref = [C1|Cur_Ref],
+	parse_refs( Rest, N_Cur_Ref, Refs, C );
+parse_refs( [C | Rest ], Cur_Ref, Refs, _ ) -> 
+	case Cur_Ref of
+		[] ->
+			parse_refs( Rest, [], Refs, C );
+		_ ->
+			Ref = lists:flatten( lists:reverse( Cur_Ref ) ),
+			parse_refs( Rest, [], [Ref | Refs], C )
+	end.
+
+ignore_until( [], _ ) ->
+	{error, not_found};
+ignore_until( [C | Rest], C ) ->
+	{ok, Rest};
+ignore_until( [_ | Rest], C ) ->
+	ignore_until( Rest, C ).
 
 is_token( Token_Name ) ->
 	C = lists:nth(1, Token_Name),

@@ -68,7 +68,7 @@ replace( [ {From, To} | Rest], Input ) ->
 	replace( Rest, R ).
 	
 tfun( Token ) ->
-	RE = entlr_util:to_re(Token),
+	RE = entlr_util:to_re(Token, true),
 	entlr_util:create_token_validation_fun(RE).
 		
 		 

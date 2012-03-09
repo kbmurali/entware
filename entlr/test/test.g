@@ -4,14 +4,14 @@ script: RULE NAME { A = 100; };
 
 RULE : 'rule';
 
-NAME : (ALPHABET | DIGIT);
+NAME : ALPHABET+DIGIT+;
 
 DIGIT: 
-		'0'..'9'
+		('0'..'9')
 	 ;
 	 
 ALPHABET: 
-		('a'..'z') | ('A'..'Z')
+		('a'..'z''A'..'Z')
 		;
 		
 SYMBOL:

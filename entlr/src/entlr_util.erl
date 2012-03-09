@@ -11,7 +11,7 @@
 %%
 -export([get_mod_spec/1]).
 -export([match/2]).
--export([to_re/1]).
+-export([to_re/2]).
 -export([create_token_validation_fun/1]).
 
 %%
@@ -36,7 +36,7 @@ match( Input, RE ) ->
 			false
 	end.
 
-to_re( Input ) ->
+to_re( Input, Shorten_WS ) ->
 	Replace_Ts = [ { "'\\('", ?CURLY1 },
 				   { "'\\)'", ?CURLY2 },
 				   { "'\\['", "\\\\[" },
@@ -53,17 +53,18 @@ to_re( Input ) ->
 				   { ?CURLY2, "\\)" },
 				   { "'", "" } ],
 	
-	Replaced_Token = replace( Replace_Ts, Input ),
+	T_Inp = string:strip( Input, both),
+	R_String = replace( Replace_Ts, T_Inp ),
 	
-	case Input of
-		Replaced_Token ->
-			Replaced_Token ++ "{1}";
-		_ ->
-			"[" ++ Replaced_Token ++ "]{1}"
+	case Shorten_WS of
+		true ->
+			replace( [ {"\\s+", " "}], R_String );
+		false ->
+			R_String
 	end.
 	
-
-
+				   
+	
 replace( [], R ) ->
 	R;
 replace( [ {From, To} | Rest], Input ) ->
