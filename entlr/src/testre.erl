@@ -15,21 +15,286 @@
 %%
 %% API Functions
 %%
-parse_refs( [], Cur_Ref, Refs, C ) when (C >= $A andalso C =< $Z) orelse (C >= $z andalso C =< $z)->
-	N_Cur_Ref = [C | Cur_Ref],
+test( Input ) ->
+	{_, Rules, Tokens } = entlr_grammar_parser:get_entries(file, "./test/test.g" ),
+	[ {_, Rule} | _ ] = Rules,
+	{ok, Rule_Tokens} = parse_rule( Rule, [], unknown, [] ),
+	resolve_rule_tokens( Rule_Tokens, Tokens, [] ).
+
+resolve_rule_tokens( [], _, Acc ) ->
+	{ok, lists:reverse(Acc) };
+resolve_rule_tokens( [ {Index, token, Name} | Rest ], Tokens, Acc ) ->
+	case lists:keyfind(Name, 1, Tokens) of
+		false ->
+			{error, {token_not_found, Name} };
+		{_, Value } ->
+			Resolved_Token = {Index, token, Value },
+			N_Acc = [ Resolved_Token | Acc ],
+			resolve_rule_tokens( Rest, Tokens, N_Acc )
+	end;
+resolve_rule_tokens( [ {Index, var_token, {Var, Name} } | Rest ], Tokens, Acc ) ->
+	case lists:keyfind(Name, 1, Tokens) of
+		false ->
+			{error, {token_not_found, Name} };
+		{_, Value } ->
+			Resolved_Token = {Index, var_token, {Var, Value} },
+			N_Acc = [ Resolved_Token | Acc ],
+			resolve_rule_tokens( Rest, Tokens, N_Acc )
+	end;
+resolve_rule_tokens( [ {Index, expr, Expr} | Rest ], Tokens, Acc ) ->
+	RE = entlr_util:to_re( Expr, false ),
+	Resolved_Token = {Index, expr, RE },
+	N_Acc = [ Resolved_Token | Acc ],
+	resolve_rule_tokens( Rest, Tokens, N_Acc );
+resolve_rule_tokens( [ {Index, and_cond, List} | Rest ], Tokens, Acc ) ->
+	{ok, Resolved_List} = resolve_rule_tokens( List, Tokens, [] ),
+	Resolved_Entry = {Index, and_cond, Resolved_List },
+	N_Acc = [ Resolved_Entry | Acc ],
+	resolve_rule_tokens( Rest, Tokens, N_Acc );
+resolve_rule_tokens( [ {Index, or_cond, List} | Rest ], Tokens, Acc ) ->
+	{ok, Resolved_List} = resolve_rule_tokens( List, Tokens, [] ),
+	Resolved_Entry = {Index, or_cond, Resolved_List },
+	N_Acc = [ Resolved_Entry | Acc ],
+	resolve_rule_tokens( Rest, Tokens, N_Acc );
+resolve_rule_tokens( [ T | Rest ], Tokens, Acc ) ->
+	resolve_rule_tokens( Rest, Tokens, [T| Acc] ).
+
+
+parse_rule( [], Cur_Ref, Type, Refs, none, none, none ) ->
+	I_Refs = case Cur_Ref of
+				 [] ->
+					 Refs;
+				 _ ->
+					 Index = length(Refs) + 1,
+					 Ref = lists:flatten( lists:reverse( Cur_Ref ) ),
+					 [ {Index, Type, Ref} | Refs]
+			 end,
+	F_Refs = resolve_var_tokens( I_Refs, [] ),
+	{ok, F_Refs};
+parse_rule( [], Cur_Ref, Type, Refs, C, none, none ) ->
+	N_Cur_Ref = [C | Cur_Ref ],
+	Index = length(Refs) + 1,
 	Ref = lists:flatten( lists:reverse( N_Cur_Ref ) ),
-	lists:reverse( [Ref | Refs] );
-parse_refs( [], Cur_Ref, Refs, _ ) ->
+	I_Refs = [ {Index, Type, Ref} | Refs],
+	F_Refs = resolve_var_tokens( I_Refs, [] ),
+	{ok, F_Refs};
+parse_rule( [], Cur_Ref, Type, Refs, C1, C2, none ) ->
+	N_Cur_Ref = [ C2 | [C1 | Cur_Ref ] ],
+	Index = length(Refs) + 1,
+	Ref = lists:flatten( lists:reverse( N_Cur_Ref ) ),
+	I_Refs = [ {Index, Type, Ref} | Refs],
+	F_Refs = resolve_var_tokens( I_Refs, [] ),
+	{ok, F_Refs};
+parse_rule( [], Cur_Ref, Type, Refs, C1, C2, C3 ) ->
+	N_Cur_Ref = [ C3 | [ C2 | [C1 | Cur_Ref ] ] ],
+	Index = length(Refs) + 1,
+	Ref = lists:flatten( lists:reverse( N_Cur_Ref ) ),
+	I_Refs = [ {Index, Type, Ref} | Refs],
+	F_Refs = resolve_var_tokens( I_Refs, [] ),
+	{ok, F_Refs};
+parse_rule( [ C | Rest ], Cur_Ref, Type, Refs, none, none, none ) when C == 9 orelse C == 32 orelse C == 124 ->
 	case Cur_Ref of
 		[] ->
-			lists:reverse(Refs);
+			parse_rule( Rest, [], unknown, Refs, none, none, none );
 		_ ->
+			Index = length(Refs) + 1,
 			Ref = lists:flatten( lists:reverse( Cur_Ref ) ),
-			lists:reverse( [Ref | Refs] )
+			parse_rule( Rest, [], unknown, [ {Index, Type,Ref} | Refs], none, none, none )
 	end;
-parse_refs( [C | Rest ], Cur_Ref, Refs, none ) ->
-	parse_refs( Rest, Cur_Ref, Refs, C );
-parse_refs( Rest, Cur_Ref, Refs, 123 ) ->
+parse_rule( [ C | Rest ], Cur_Ref, Type, Refs, C1, none, none ) when C == 9 orelse C == 32 orelse C == 124 ->
+	N_Cur_Ref = [C1 | Cur_Ref ],
+	Index = length(Refs) + 1,
+	Ref = lists:flatten( lists:reverse( N_Cur_Ref ) ),
+	parse_rule( Rest, [], unknown, [ {Index, Type,Ref} | Refs], none, none, none );
+parse_rule( [ C | Rest ], Cur_Ref, Type, Refs, C1, C2, none ) when C == 9 orelse C == 32 orelse C == 124 ->
+	N_Cur_Ref = [C2 | [C1 | Cur_Ref ] ],
+	Index = length(Refs) + 1,
+	Ref = lists:flatten( lists:reverse( N_Cur_Ref ) ),
+	parse_rule( Rest, [], unknown, [ {Index, Type,Ref} | Refs], none, none, none );
+parse_rule( [ C | Rest ], Cur_Ref, Type, Refs, C1, C2, C3 ) when C == 9 orelse C == 32 orelse C == 124 ->
+	N_Cur_Ref = [C3 | [C2 | [C1 | Cur_Ref ] ] ],
+	Index = length(Refs) + 1,
+	Ref = lists:flatten( lists:reverse( N_Cur_Ref ) ),
+	parse_rule( Rest, [], unknown, [ {Index, Type,Ref} | Refs], none, none, none );
+parse_rule( [ 123 | Rest ], Cur_Ref, Type, Refs, none, none, none ) ->
+	%This is the case for {. Parse until } is found
+	%123 is the asci value for '{'
+	%125 is the asci value for '}'
+	N_Refs = case Cur_Ref of
+				 [] ->
+					 Refs;
+				 _ ->
+					 Index = length(Refs) + 1,
+					 Ref = lists:flatten( lists:reverse( Cur_Ref ) ),
+					 [{Index, Type, Ref} | Refs]
+			 end,
+	case parse_until( Rest, 125, [] ) of
+		{true, Code, [] } ->
+			Index2 = length(N_Refs) + 1,
+			F_Refs = [ {Index2, code, Code} | N_Refs ],
+			parse_rule( [], [], unknown, F_Refs, none, none, none );
+		{_, _, _ } ->
+			throw( {error, invalid_rule_spec} )
+	end;
+parse_rule( [ 123 | Rest ], Cur_Ref, Type, Refs, C1, none, none ) ->
+	%This is the case for {. Ignore until } is found
+	%123 is the asci value for '{'
+	%125 is the asci value for '}'
+	Index = length(Refs) + 1,
+	N_Cur_Ref = [ C1 | Cur_Ref ],
+	Ref = lists:flatten( lists:reverse( N_Cur_Ref ) ),
+	N_Refs = [{Index, Type, Ref} | Refs],
+	
+	case parse_until( Rest, 125, [] ) of
+		{true, Code, [] } ->
+			Index2 = length(N_Refs) + 1,
+			F_Refs = [ {Index2, code, Code} | N_Refs ],
+			parse_rule( [], [], unknown, F_Refs, none, none, none );
+		{ _, _, _ } ->
+			throw( {error, invalid_rule_spec} )
+	end;
+parse_rule( [ 123 | Rest ], Cur_Ref, Type, Refs, C1, C2, none ) ->
+	%This is the case for {. Ignore until } is found
+	%123 is the asci value for '{'
+	%125 is the asci value for '}'
+	Index = length(Refs) + 1,
+	N_Cur_Ref =  [ C2 | [ C1 | Cur_Ref ] ],
+	Ref = lists:flatten( lists:reverse( N_Cur_Ref ) ),
+	N_Refs = [{Index, Type, Ref} | Refs],
+	
+	case parse_until( Rest, 125, [] ) of
+		{true, Code, [] } ->
+			Index2 = length(N_Refs) + 1,
+			F_Refs = [ {Index2, code, Code} | N_Refs ],
+			parse_rule( [], [], unknown, F_Refs, none, none, none );
+		{ _, _, _ } ->
+			throw( {error, invalid_rule_spec} )
+	end;
+parse_rule( [ 123 | Rest ], Cur_Ref, Type, Refs, C1, C2, C3 ) ->
+	%This is the case for {. Ignore until } is found
+	%123 is the asci value for '{'
+	%125 is the asci value for '}'
+	Index = length(Refs) + 1,
+	N_Cur_Ref =  [C3 | [ C2 | [ C1 | Cur_Ref ] ] ],
+	Ref = lists:flatten( lists:reverse( N_Cur_Ref ) ),
+	N_Refs = [{Index, Type, Ref} | Refs],
+	
+	case parse_until( Rest, 125, [] ) of
+		{true, Code, [] } ->
+			Index2 = length(N_Refs) + 1,
+			F_Refs = [ {Index2, code, Code} | N_Refs ],
+			parse_rule( [], [], unknown, F_Refs, none, none, none );
+		{_, _, _ } ->
+			throw( {error, invalid_rule_spec} )
+	end;
+parse_rule( [40 | Rest], Cur_Ref, Type, Refs, none, none, none ) ->
+	%32 is the asci value for " "
+	%40 is the asci value for (
+	N_Refs = case Cur_Ref of
+				 [] ->
+					 Refs;
+				 _ ->
+					 Index = length(Refs) + 1,
+					 Ref = lists:flatten( lists:reverse( Cur_Ref ) ),
+					 [ {Index, Type, Ref} | Refs]
+			 end,
+	{ok, Inner_String, Inner_Rest} = parse_rule_inner( Rest, [] ),
+	{ok, And_Refs} = parse_rule( Inner_String, [], unknown, [], none, none, none ),
+	Index2 = length(N_Refs) + 1,
+	F_Refs = [ { Index2, and_cond, And_Refs } | N_Refs ],
+	parse_rule( Inner_Rest, [], unknown, F_Refs, none, none, none );
+parse_rule( [40 | Rest], Cur_Ref, Type, Refs, C1, none, none ) ->
+	%32 is the asci value for " "
+	%40 is the asci value for (
+	Index = length(Refs) + 1,
+	N_Cur_Ref = [ C1 | Cur_Ref ],
+	Ref = lists:flatten( lists:reverse( N_Cur_Ref ) ),
+	N_Refs = [{Index, Type, Ref} | Refs],
+	
+	{ok, Inner_String, Inner_Rest} = parse_rule_inner( Rest, [] ),
+	{ok, And_Refs} = parse_rule( Inner_String, [], unknown, [], none, none, none ),
+	Index2 = length(N_Refs) + 1,
+	F_Refs = [ { Index2, and_cond, And_Refs } | N_Refs ],
+	parse_rule( Inner_Rest, [], unknown, F_Refs, none, none, none );
+parse_rule( [40 | Rest], Cur_Ref, Type, Refs, C1, C2, none ) ->
+	%32 is the asci value for " "
+	%40 is the asci value for (
+	Index = length(Refs) + 1,
+	N_Cur_Ref = [C2 | [ C1 | Cur_Ref ] ],
+	Ref = lists:flatten( lists:reverse( N_Cur_Ref ) ),
+	N_Refs = [{Index, Type, Ref} | Refs],
+	
+	{ok, Inner_String, Inner_Rest} = parse_rule_inner( Rest, [] ),
+	{ok, And_Refs} = parse_rule( Inner_String, [], unknown, [], none, none, none ),
+	Index2 = length(N_Refs) + 1,
+	F_Refs = [ { Index2, and_cond, And_Refs } | N_Refs ],
+	parse_rule( Inner_Rest, [], unknown, F_Refs, none, none, none );
+parse_rule( [40 | Rest], Cur_Ref, Type, Refs, C1, C2, C3 ) ->
+	%32 is the asci value for " "
+	%40 is the asci value for (
+	Index = length(Refs) + 1,
+	N_Cur_Ref = [C3 | [C2 | [ C1 | Cur_Ref ] ] ],
+	Ref = lists:flatten( lists:reverse( N_Cur_Ref ) ),
+	N_Refs = [{Index, Type, Ref} | Refs],
+	
+	{ok, Inner_String, Inner_Rest} = parse_rule_inner( Rest, [] ),
+	{ok, And_Refs} = parse_rule( Inner_String, [], unknown, [], none, none, none ),
+	Index2 = length(N_Refs) + 1,
+	F_Refs = [ { Index2, and_cond, And_Refs } | N_Refs ],
+	parse_rule( Inner_Rest, [], unknown, F_Refs, none, none, none );
+parse_rule( [61 | Rest], Cur_Ref, Type, Refs, C1, none, none ) when Type =/= var_token andalso Type =/= unknown   ->
+	%61 is the asci value for =
+	parse_rule( Rest, Cur_Ref, var_token, Refs, C1, 61, none );
+parse_rule( [61 | Rest], Cur_Ref, Type, Refs, C1, C2, none ) when Type =/= var_token andalso Type =/= unknown   ->
+	%61 is the asci value for =
+	parse_rule( Rest, Cur_Ref, var_token, Refs, C1, C2, 61 );
+parse_rule( [61 | Rest], Cur_Ref, Type, Refs, C1, C2, C3 ) when Type =/= var_token andalso Type =/= unknown   ->
+	%61 is the asci value for =
+	N_Cur_Ref = [C3 | [C2 | [C1 | Cur_Ref ] ] ],
+	parse_rule( Rest, N_Cur_Ref, var_token, Refs, 61, none, none );
+parse_rule( [C | Rest ], Cur_Ref, unknown, Refs, none, none, none ) when (C >= $A andalso C =< $Z) ->
+	parse_rule( Rest, Cur_Ref, token, Refs, C, none, none );
+parse_rule( [C | Rest ], Cur_Ref, unknown, Refs, none, none, none ) when (C >= $a andalso C =< $z) ->
+	parse_rule( Rest, Cur_Ref, rule, Refs, C, none, none );
+parse_rule( [C | Rest ], Cur_Ref, Type, Refs, C1, none, none ) when (C >= $A andalso C =< $Z) orelse (C >= $a andalso C =< $z) ->
+	parse_rule( Rest, Cur_Ref, Type, Refs, C1, C, none );
+parse_rule( [C | Rest ], Cur_Ref, Type, Refs, C1, C2, none ) when (C >= $A andalso C =< $Z) orelse (C >= $a andalso C =< $z) ->
+	parse_rule( Rest, Cur_Ref, Type, Refs, C1, C2, C );
+parse_rule( [C | Rest ], Cur_Ref, Type, Refs, C1, C2, C3 ) when (C >= $A andalso C =< $Z) orelse (C >= $a andalso C =< $z) ->
+	N_Cur_Ref = [C3 | [C2 | [C1 | Cur_Ref ] ] ],
+	parse_rule( Rest, N_Cur_Ref, Type, Refs, C, none, none );
+parse_rule( [C | Rest ], Cur_Ref, _, Refs, none, none, none ) ->
+	parse_rule( Rest, Cur_Ref, expr, Refs, C, none, none );
+parse_rule( [C | Rest ], Cur_Ref, _, Refs, C1, none, none ) ->
+	parse_rule( Rest, Cur_Ref, expr, Refs, C1, C, none );
+parse_rule( [C | Rest ], Cur_Ref, _, Refs, C1, C2, none ) ->
+	parse_rule( Rest, Cur_Ref, expr, Refs, C1, C2, C );
+parse_rule( [C | Rest ], Cur_Ref, _, Refs, C1, C2, C3 ) ->
+	N_Cur_Ref = [C3 | [C2 | [C1 | Cur_Ref ] ] ],
+	parse_rule( Rest, N_Cur_Ref, expr, Refs, C, none, none ).
+
+
+parse_rule( [], Cur_Ref, Type, Refs ) ->
+	I_Refs = case Cur_Ref of
+				 [] ->
+					 Refs;
+				 _ ->
+					 Index = length(Refs) + 1,
+					 Ref = lists:flatten( lists:reverse( Cur_Ref ) ),
+					 [ {Index, Type, Ref} | Refs]
+			 end,
+	F_Refs = resolve_var_tokens( I_Refs, [] ),
+	{ok, F_Refs};
+parse_rule( [C | Rest ], Cur_Ref, Type, Refs ) when C == 9 orelse C == 32 -> 
+	case Cur_Ref of
+		[] ->
+			parse_rule( Rest, [], unknown, Refs );
+		_ ->
+			Index = length(Refs) + 1,
+			Ref = lists:flatten( lists:reverse( Cur_Ref ) ),
+			parse_rule( Rest, [], unknown, [ {Index, Type,Ref} | Refs] )
+	end;
+parse_rule( [ 123 | Rest ], Cur_Ref, Type, Refs ) ->
 	%This is the case for {. Ignore until } is found
 	%123 is the asci value for '{'
 	%125 is the asci value for '}'
@@ -37,42 +302,67 @@ parse_refs( Rest, Cur_Ref, Refs, 123 ) ->
 				 [] ->
 					 Refs;
 				 _ ->
+					 Index = length(Refs) + 1,
 					 Ref = lists:flatten( lists:reverse( Cur_Ref ) ),
-					 [Ref | Refs]
+					 [{Index, Type, Ref} | Refs]
 			 end,
-	case ignore_until( Rest, 125 ) of
-		{error, not_found } ->
-			parse_refs( [], [], N_Refs, none );
-		{ok, Remaining } ->
-			parse_refs( Remaining, [], N_Refs, none )
+	case parse_until( Rest, 125, [] ) of
+		{true, Code, [] } ->
+			Index2 = length(N_Refs) + 1,
+			F_Refs = [ {Index2, code, Code} | N_Refs ],
+			parse_rule( [], [], unknown, F_Refs );
+		{_, _, _ } ->
+			throw( {error, invalid_specification} )
 	end;
-parse_refs( Rest, Cur_Ref, Refs, 39 ) ->
-	%This is the case for '. Ignore until closing ' is found
-	%39 is the asci value for '
+parse_rule( [40 | Rest], Cur_Ref, Type, Refs ) ->
+	%32 is the asci value for " "
+	%40 is the asci value for (
 	N_Refs = case Cur_Ref of
 				 [] ->
 					 Refs;
 				 _ ->
+					 Index = length(Refs) + 1,
 					 Ref = lists:flatten( lists:reverse( Cur_Ref ) ),
-					 [Ref | Refs]
+					 [ {Index, Type, Ref} | Refs]
 			 end,
-	case ignore_until( Rest, 39 ) of
-		{error, not_found } ->
-			parse_refs( [], [], N_Refs, none );
-		{ok, Remaining } ->
-			parse_refs( Remaining, [], N_Refs, none )
-	end;
-parse_refs( [C | Rest ], Cur_Ref, Refs, C1 ) when (C1 >= $A andalso C1 =< $Z) orelse (C1 >= $z andalso C1 =< $z) ->
-	N_Cur_Ref = [C1|Cur_Ref],
-	parse_refs( Rest, N_Cur_Ref, Refs, C );
-parse_refs( [C | Rest ], Cur_Ref, Refs, _ ) -> 
-	case Cur_Ref of
-		[] ->
-			parse_refs( Rest, [], Refs, C );
-		_ ->
-			Ref = lists:flatten( lists:reverse( Cur_Ref ) ),
-			parse_refs( Rest, [], [Ref | Refs], C )
-	end.
+	{ok, Inner_String, Inner_Rest} = parse_rule_inner( Rest, [] ),
+	{ok, And_Refs} = parse_rule( Inner_String, [], unknown, [] ),
+	Index2 = length(N_Refs) + 1,
+	F_Refs = [ { Index2, and_cond, And_Refs } | N_Refs ],
+	parse_rule( Inner_Rest, [], unknown, F_Refs );
+parse_rule( [61 | Rest], Cur_Ref, Type, Refs ) when Type =/= var_token andalso Type =/= unknown ->
+	%61 is the asci value for =
+	N_Cur_Ref = [61|Cur_Ref],
+	parse_rule( Rest, N_Cur_Ref, var_token, Refs );
+parse_rule( [124 | Rest], Cur_Ref, Type, Refs ) when Type =/= expr ->
+	%124 is the asci value for |
+	N_Refs = case Cur_Ref of
+				 [] ->
+					 Refs;
+				 _ ->
+					 Index = length(Refs) + 1,
+					 Ref = lists:flatten( lists:reverse( Cur_Ref ) ),
+					 [ {Index, Type, Ref} | Refs]
+			 end,
+	{ok, Or_Refs} = parse_rule( Rest, [], unknown, [] ),
+	Index2 = length(N_Refs) + 1,
+	F_Refs = [ { Index2, or_cond, Or_Refs } | N_Refs ],
+	parse_rule( [], [], unknown, F_Refs );
+parse_rule( [C | Rest ], Cur_Ref, unknown, Refs ) when (C >= $A andalso C =< $Z) ->
+	N_Cur_Ref = [C|Cur_Ref],
+	parse_rule( Rest, N_Cur_Ref, token, Refs );
+parse_rule( [C | Rest ], Cur_Ref, unknown, Refs ) when (C >= $a andalso C =< $z) ->
+	N_Cur_Ref = [C|Cur_Ref],
+	parse_rule( Rest, N_Cur_Ref, rule, Refs );
+parse_rule( [C | Rest ], Cur_Ref, Type, Refs ) when (C >= $A andalso C =< $Z) orelse (C >= $a andalso C =< $z) ->
+	N_Cur_Ref = [C|Cur_Ref],
+	parse_rule( Rest, N_Cur_Ref, Type, Refs );
+parse_rule( [C | Rest ], Cur_Ref, Type, Refs ) when Type =/= unknown andalso (C >= $0 andalso C =< $9) ->
+	N_Cur_Ref = [C|Cur_Ref],
+	parse_rule( Rest, N_Cur_Ref, Type, Refs );
+parse_rule( [C | Rest ], Cur_Ref, _, Refs ) ->
+	N_Cur_Ref = [C|Cur_Ref],
+	parse_rule( Rest, N_Cur_Ref, expr, Refs ).
 
 ignore_until( [], _ ) ->
 	{error, not_found};
@@ -80,6 +370,38 @@ ignore_until( [C | Rest], C ) ->
 	{ok, Rest};
 ignore_until( [_ | Rest], C ) ->
 	ignore_until( Rest, C ).
+
+parse_until( [], _, Acc ) ->
+	{false, lists:reverse(Acc), [] };
+parse_until( [C | Rest], C, Acc ) ->
+	{true, lists:reverse(Acc), Rest };
+parse_until( [C1 | Rest], C, Acc ) ->
+	parse_until( Rest, C, [C1 | Acc] ).
+
+parse_rule_inner( [], Acc ) ->
+	Parsed_String = lists:reverse( Acc ),
+	{ok, Parsed_String, [] };
+parse_rule_inner( [ 40 | Rest], Acc ) ->
+	%Asci value for { is 40
+	{ok, Inner_String, Inner_Rest} = parse_rule_inner( Rest, [] ),
+	Current_Acc = [ 40 | Acc ],
+	I_Acc = [41 | lists:reverse( Inner_String ) ],
+	N_Acc = lists:append( I_Acc, Current_Acc ),
+	parse_rule_inner( Inner_Rest, N_Acc );
+parse_rule_inner( [ 41 | Rest], Acc ) ->
+	%Asci value for } is 41
+	Parsed_String = lists:reverse( Acc ),
+	{ok, Parsed_String, Rest };
+parse_rule_inner( [ C | Rest], Acc ) ->
+	parse_rule_inner( Rest, [C | Acc ] ).
+
+resolve_var_tokens( [], Acc ) ->
+	Acc;
+resolve_var_tokens( [{Index, var_token, T } | Rest ], Acc ) ->
+	[Var, Token] = re:split( T, "=", [ {return, list} ] ),
+	resolve_var_tokens( Rest, [ {Index, var_token, {Var, Token} } | Acc ] );
+resolve_var_tokens( [ T | Rest ], Acc ) ->
+	resolve_var_tokens( Rest, [ T | Acc ] ).
 
 match( Input, RE ) ->
 	Len = length( Input ),
@@ -136,10 +458,53 @@ replace( [ {From, To} | Rest], Input ) ->
 tfun( Token ) ->
 	RE = entlr_util:to_re(Token, true),
 	entlr_util:create_token_validation_fun(RE).
-		
-		 
+
+tfun2( Input ) ->
+	RE = "[a-z]",
+	case entlr_util:match(Input, RE) of
+		true ->
+			{true, Input};
+		false ->
+			{false, Input}
+	end.
+
+tfun3( Input ) ->
+	RE = [{1,token,"rule"},
+		  {2,var_token,{"DName","[a-zA-Z]+[0-9]+"}},
+		  {3,code,"io:format( \"~p\", [DName] ) "}],
+	case entlr_util:match(Input, RE) of
+		true ->
+			{true, Input};
+		false ->
+			{false, Input}
+	end.
+
+tfun4( Input ) ->
+	Trim_Left = true,
+	
+	case tfun4_match( Input, Trim_Left ) of
+		{true, [], Vars } ->
+			{_, DName } = lists:keyfind( "DName", 1, Vars ),
+			io:format( "~p", [DName] );
+		false ->
+			throw( {error, invalid_input, Input} )
+	end.
+
+tfun4_match( Input, Trim_Left ) ->
+	ok.
+
+get_mod_spec( Mod ) ->
+	File = lists:concat( [Mod, ".beam" ] ),
+	Path = code:where_is_file( File ),
+	case beam_lib:chunks( Path, [abstract_code] ) of
+		{ok, {Mod, [ {abstract_code, { _, Form}} ]} } ->
+			{ok, Form};
+		Error ->
+			{error, Error }
+	end.
+
 get_func_spec( Mod, Func ) ->
-	case entlr_util:get_mod_spec(Mod) of
+	case get_mod_spec(Mod) of
 		{ok, Form} ->
 			case find_funcs( Form, Func, [] ) of
 				{error, no_function_found } -> 
@@ -192,3 +557,132 @@ read_lines( Dev, Cur_Location, Cur_List, Delimiter, Acc ) ->
 		Error ->
 			throw( Error )
 	end.
+
+resolve_rules( [], _Resolved_Tokens, Resolved_Rules ) ->
+	lists:reverse( Resolved_Rules );
+resolve_rules( [ {Name, Value} | Unresolved_Rules ], Resolved_Tokens, Resolved_Rules ) ->
+	case get_refs( Value ) of
+		[] ->
+			R_Value = string:strip( Value, both),
+			N_Resolved_Rules = [ {Name, R_Value} | Resolved_Rules ],
+			resolve_rules( Unresolved_Rules, Resolved_Tokens, N_Resolved_Rules );
+		Refs ->
+			case resolve_rule( Refs, Value, Unresolved_Rules, Resolved_Tokens, Resolved_Rules ) of
+				{error, invalid_ref} ->
+					throw( {error, invalid_ref, Name ++ " : " ++ Value } );
+				{error, ref_not_resolved } ->
+					N_Unresolved_Rules = lists:append( Unresolved_Rules, [ {Name, Value} ] ),
+					resolve_rules( N_Unresolved_Rules, Resolved_Tokens, Resolved_Rules );
+				{ok, N_Value} ->
+					N_Resolved_Rules = [ {Name, N_Value} | Resolved_Rules ],
+					resolve_rules( Unresolved_Rules, Resolved_Tokens, N_Resolved_Rules )
+			end
+	end.
+
+resolve_rule( [], Value, _Unresolved_Rules, _Resolved_Tokens, _Resolved_Rules ) ->
+	{ok, Value};
+resolve_rule( [Ref | Rest ], Value, Unresolved_Rules, Resolved_Tokens, Resolved_Rules ) ->
+	case is_token( Ref ) of
+		false ->
+			case is_rule( Ref ) of
+				false ->
+					resolve_rule( Rest, Value, Unresolved_Rules, Resolved_Tokens, Resolved_Rules );
+				true ->
+					case lists:keyfind( Ref, 1, Resolved_Rules ) of
+						false ->
+							case lists:keyfind( Ref, 1, Unresolved_Rules ) of
+								false ->
+									{error, invalid_ref};
+								_ ->
+									{error, ref_not_resolved}
+							end;
+						{_, T_Value } ->
+							N_Value = re:replace( Value, Ref, T_Value, [ {return, list} ] ),
+							resolve_rule( Rest, N_Value, Unresolved_Rules, Resolved_Tokens, Resolved_Rules )
+					end
+			end;
+		true ->
+			case lists:keyfind( Ref, 1, Resolved_Tokens ) of
+				false ->
+					{error, invalid_ref};
+				{_, T_Value } ->
+					N_Value = re:replace( Value, Ref, T_Value, [ {return, list} ] ),
+					resolve_rule( Rest, N_Value, Unresolved_Rules, Resolved_Tokens, Resolved_Rules )
+			end
+	end.
+
+
+is_token( Token_Name ) ->
+	C = lists:nth(1, Token_Name),
+	C >= $A andalso C =< $Z.
+
+is_rule( Rule_Name ) ->
+	C = lists:nth(1, Rule_Name),
+	C >= $a andalso C =< $z.
+
+get_refs( Value ) ->
+	Value.
+
+create_token_validation_fun( RE ) ->
+	N = 1,
+	M = N + 1,
+	O = M + 1,
+	P = O + 1,
+	Q = P + 1,
+	R = Q + 1,
+	S = R + 1,
+	T = S + 1,
+	
+	G_Fun = { 'fun',N, {clauses,
+						[{clause,M,
+						  [{var,M,'Input'}],
+						  [],
+						  [{match,O,
+							{var,O,'RE'},
+							{string,O,RE}},
+						   {'case',Q,
+							{'catch',Q,
+							 {call,Q,
+							  {remote,Q,{atom,Q,entlr_util},{atom,Q,match}},
+							  [{var,Q,'Input'},{var,Q,'RE'}]}},
+							[{clause,R,[{atom,R,true}],[],[{tuple,S,[{atom,S,true},{var,S,'Input'}]}] },
+							 {clause,T,[{var,T,'_'}],[], [{tuple,T,[{atom,T,false},{var,T,'Input'}]}] }]}]}]}},
+
+	{value, Fun, _ } = erl_eval:expr( G_Fun, [] ),
+	Fun.
+
+create_token_fun( Token, RE ) ->
+	F_Name = create_token_fun_name(Token),
+	N = 1,
+	M = N + 1,
+	O = M + 1,
+	P = O + 1,
+	Q = P + 1,
+	R = Q + 1,
+	S = R + 1,
+	T = S + 1,
+	
+	G_Fun = { 'fun',N, {clauses,
+						[{clause,M,
+						  [{var,M,'Input'}],
+						  [],
+						  [{match,O,
+							{var,O,'RE'},
+							{string,O,RE}},
+						   {'case',Q,
+							{'catch',Q,
+							 {call,Q,
+							  {remote,Q,{atom,Q,entlr_util},{atom,Q,match}},
+							  [{var,Q,'Input'},{var,Q,'RE'}]}},
+							[{clause,R,[{atom,R,true}],[],[{tuple,S,[{atom,S,true},{var,S,'Input'}]}] },
+							 {clause,T,[{var,T,'_'}],[], [{tuple,T,[{atom,T,false},{var,T,'Input'}]}] }]}]}]}},
+	
+	Fun_String = erl_prettypr:format(G_Fun),
+	[ _, _, _ | Rest1 ] = Fun_String,
+	[ _, _, _ | Rest2 ] = lists:reverse( Rest1 ),
+	Body = lists:reverse( Rest2 ) ++ ".",
+	lists:append( F_Name, Body ).
+	
+
+create_token_fun_name( Token ) ->
+	string:to_lower( Token ) ++ "_token".

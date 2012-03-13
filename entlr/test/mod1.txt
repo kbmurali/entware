@@ -1,0 +1,158 @@
+-module(test123).
+
+-compile([export_all]).
+
+process([], [], _, Vars, _, true) -> {true, [], Vars};
+process([], [], _, _, _, false) -> false;
+process([], Input, _, Vars, _, true) ->
+    {true, Input, Vars};
+process([], _Input, _, _Vars, _, false) -> false;
+process(_, [], _, _, _, _) -> false;
+process([{_, or_cond, _} = Cond | Rest], Input,
+	Trim_Left, Vars, Original_Input, false) ->
+    case match(Cond, Input, Trim_Left, Original_Input) of
+      {true, N_Input, I_Vars} ->
+	  N_Vars = lists:append(Vars, I_Vars),
+	  process(Rest, N_Input, Trim_Left, N_Vars,
+		  Original_Input, true);
+      false ->
+	  process(Rest, Input, Trim_Left, Vars, Original_Input,
+		  false)
+    end;
+process(_, _, _, _, _, false) -> false;
+process([Cond | Rest], Input, Trim_Left, Vars,
+	Original_Input, true) ->
+    case match(Cond, Input, Trim_Left, Original_Input) of
+      {true, N_Input, I_Vars} ->
+	  N_Vars = lists:append(Vars, I_Vars),
+	  process(Rest, N_Input, Trim_Left, N_Vars,
+		  Original_Input, true);
+      false ->
+	  process(Rest, Input, Trim_Left, Vars, Original_Input,
+		  false)
+    end.
+
+match({_, token, RE}, Input, Trim_Left,
+      _Original_Input) ->
+    String = trim_left(Input, Trim_Left),
+    case re:run(String, RE) of
+      {match, [{0, L} | _]} ->
+	  case length(String) == L of
+	    true -> {true, [], []};
+	    false ->
+		N_Input = string:sub_string(String, L + 1),
+		{true, N_Input, []}
+	  end;
+      _ -> false
+    end;
+match({_, var_token, {Var, RE}}, Input, Trim_Left,
+      _Original_Input) ->
+    String = trim_left(Input, Trim_Left),
+    case re:run(String, RE) of
+      {match, [{0, L} | _]} ->
+	  Match = string:substr(String, 1, L),
+	  case length(String) == L of
+	    true -> {true, [], [{Var, Match}]};
+	    false ->
+		N_Input = string:sub_string(String, L + 1),
+		{true, N_Input, [{Var, Match}]}
+	  end;
+      _ -> false
+    end;
+match({_, rule, Rule_Name}, _Input, _Trim_Left,
+      Original_Input) ->
+    R_Fun_Name =
+	entlr_mod_util:create_rule_fun_name(Rule_Name),
+    R_Fun = list_to_atom(R_Fun_Name),
+    Mod = module_name(),
+    case catch apply(Mod, R_Fun, [Original_Input]) of
+      {error, invalid_input, _} -> false;
+      _ -> throw({rule_executed, Rule_Name})
+    end;
+match({_, and_cond, List}, Input, Trim_Left,
+      Original_Input) ->
+    and_cond(List, Input, Trim_Left, [], Original_Input);
+match({_, or_cond, List}, Input, Trim_Left,
+      Original_Input) ->
+    or_cond(List, Input, Trim_Left, [], Original_Input).
+
+and_cond([], [], _, Vars, _) -> {true, [], Vars};
+and_cond([], Input, _, Vars, _) -> {true, Input, Vars};
+and_cond(_, [], _, _, _) -> false;
+and_cond([Cond | Rest], Input, Trim_Left, Vars,
+	 Original_Input) ->
+    case match(Cond, Input, Trim_Left, Original_Input) of
+      {true, N_Input, I_Vars} ->
+	  N_Vars = lists:append(Vars, I_Vars),
+	  and_cond(Rest, N_Input, Trim_Left, N_Vars,
+		   Original_Input);
+      false -> false
+    end.
+
+or_cond([], [], _, Vars, _) -> {false, [], Vars};
+or_cond([], Input, _, Vars, _) -> {false, Input, Vars};
+or_cond(_, [], _, _, _) -> false;
+or_cond([Cond | Rest], Input, Trim_Left, Vars,
+	Original_Input) ->
+    case match(Cond, Input, Trim_Left, Original_Input) of
+      {true, N_Input, I_Vars} ->
+	  N_Vars = lists:append(Vars, I_Vars),
+	  {true, N_Input, N_Vars};
+      false ->
+	  or_cond(Rest, Input, Trim_Left, Vars, Original_Input)
+    end.
+
+trim_left(Input, true) -> string:strip(Input, left);
+trim_left(Input, false) -> Input.
+
+module_name() ->
+    try throw(error) catch
+      _:_ -> [{Mod, _, _} | _] = erlang:get_stacktrace(), Mod
+    end.
+
+scripts_match(Input, Trim_Left) ->
+    Rules_Tree = [{1, rule, "script1"},
+		  {2, or_cond, [{1, rule, "script2"}]}],
+    process(Rules_Tree, Input, Trim_Left, [], Input, true).
+
+scripts(Input0) ->
+    Trim_Left0 = true,
+    case catch scripts_match(Input0, Trim_Left0) of
+      {true, [], Vars0} -> ok;
+      {rule_executed, _} -> ok;
+      false -> throw({error, invalid_input, Input0})
+    end.
+
+script1_match(Input, Trim_Left) ->
+    Rules_Tree = [{1, token, "rule"},
+		  {2, var_token, {"DName", "[a-zA-Z]+[0-9]+"}}],
+    process(Rules_Tree, Input, Trim_Left, [], Input, true).
+
+script1(Input0) ->
+    Trim_Left0 = true,
+    case catch script1_match(Input0, Trim_Left0) of
+      {true, [], Vars0} ->
+	  {_, DName} = lists:keyfind("DName", 1, Vars0),
+	  io:format("This is generated script1 output: ~p~n",
+		    [DName]);
+      {rule_executed, _} -> ok;
+      false -> throw({error, invalid_input, Input0})
+    end.
+
+script2_match(Input, Trim_Left) ->
+    Rules_Tree = [{1, token, "test"},
+		  {2, var_token, {"Digit", "[0-9]"}},
+		  {3, var_token, {"DName", "[a-zA-Z]+[0-9]+"}}],
+    process(Rules_Tree, Input, Trim_Left, [], Input, true).
+
+script2(Input0) ->
+    Trim_Left0 = true,
+    case catch script2_match(Input0, Trim_Left0) of
+      {true, [], Vars0} ->
+	  {_, DName} = lists:keyfind("DName", 1, Vars0),
+	  {_, Digit} = lists:keyfind("Digit", 1, Vars0),
+	  io:format("This is gen script2 output: ~p, ~p~n",
+		    [Digit, DName]);
+      {rule_executed, _} -> ok;
+      false -> throw({error, invalid_input, Input0})
+    end.

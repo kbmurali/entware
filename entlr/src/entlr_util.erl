@@ -9,23 +9,22 @@
 %%
 %% Exported Functions
 %%
--export([get_mod_spec/1]).
 -export([match/2]).
 -export([to_re/2]).
--export([create_token_validation_fun/1]).
+-export([gen_mod/2]).
 
 %%
 %% API Functions
 %%
-get_mod_spec( Mod ) ->
-	File = lists:concat( [Mod, ".beam" ] ),
-	Path = code:where_is_file( File ),
-	case beam_lib:chunks( Path, [abstract_code] ) of
-		{ok, {Mod, [ {abstract_code, { _, Form}} ]} } ->
-			{ok, Form};
-		Error ->
-			{error, Error }
-	end.
+gen_mod( file, File ) ->
+	{Grammar_Name, Rules, Tokens } = entlr_grammar_parser:get_entries(file, File ),
+	Fun = fun( {Rule_Name, Rule_Spec}, Acc ) ->
+				  {ok, Rule_Tokens} = entlr_grammar_parser:parse_rule( Rule_Spec, [], unknown, [] ),
+				  {ok, Resolved_Tokens } = entlr_grammar_parser:resolve_rule_tokens( Rule_Tokens, Tokens, [] ),
+				  [ {Rule_Name, Resolved_Tokens} | Acc ]
+		  end,
+	Resolved_Rules = lists:foldr(Fun, [], Rules ),
+	entlr_mod_util:create_mod_form( Grammar_Name, Resolved_Rules, true ).
 
 match( Input, RE ) ->
 	Len = length( Input ),
@@ -70,31 +69,3 @@ replace( [], R ) ->
 replace( [ {From, To} | Rest], Input ) ->
 	R = re:replace( Input, From, To, [global, {return, list}] ),
 	replace( Rest, R ).
-
-create_token_validation_fun( RE ) ->
-	N = 1,
-	M = N + 1,
-	O = M + 1,
-	P = O + 1,
-	Q = P + 1,
-	R = Q + 1,
-	S = R + 1,
-	T = S + 1,
-	
-	G_Fun = { 'fun',N, {clauses,
-						[{clause,M,
-						  [{var,M,'Input'}],
-						  [],
-						  [{match,O,
-							{var,O,'RE'},
-							{string,O,RE}},
-						   {'case',Q,
-							{'catch',Q,
-							 {call,Q,
-							  {remote,Q,{atom,Q,entlr_util},{atom,Q,match}},
-							  [{var,Q,'Input'},{var,Q,'RE'}]}},
-							[{clause,R,[{atom,R,true}],[],[{atom,S,true}]},
-							 {clause,T,[{var,T,'_'}],[],[{atom,T,false}]}]}]}]}},
-
-	{value, Fun, _ } = erl_eval:expr( G_Fun, [] ),
-	Fun.

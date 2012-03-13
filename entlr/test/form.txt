@@ -18,3 +18,25 @@
                       [{var,76,'Input'},{var,76,'RE'}]}},
               [{clause,77,[{atom,77,true}],[],[{atom,78,true}]},
                {clause,79,[{var,79,'_'}],[],[{atom,80,false}]}]}]}]}
+               
+               
+% create tokens from strings containing forms
+> {ok, MTs, _} = erl_scan:string("-module(z).").
+> {ok, ETs, _} = erl_scan:string("-export([f/0]).").
+> {ok, FTs, _} = erl_scan:string("f() -> hello_world.").
+% tokens to erl_parse trees
+> {ok,MF} = erl_parse:parse_form(MTs).
+> {ok,EF} = erl_parse:parse_form(ETs).
+> {ok,FF} = erl_parse:parse_form(FTs).
+
+% compile forms to binary
+> {ok, z, Bin} = compile:forms([MF,EF,FF]).
+{ok,z,<<70,79,82,49,0,0,1,164,66,69,65,77,65,116,111,109,0,0,0,...>>}
+
+% load module from binary
+> code:load_binary(z, "nofile", Bin).
+{module,z}
+
+% test
+> z:f().
+hello_world
