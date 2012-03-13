@@ -130,6 +130,11 @@ module_name() ->
 		throw( error )
 	catch
 		_:_ ->
-			[ {Mod,_,_} | _ ] = erlang:get_stacktrace(),
-			Mod
+			[ Term | _ ] = erlang:get_stacktrace(),
+			case Term of
+				{Mod, _, _} ->
+					Mod;
+				{Mod, _, _, _} ->
+					Mod
+			end
 	end.
