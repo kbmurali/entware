@@ -114,6 +114,18 @@ eval_rule( Line ) ->
 			{error, invalid_rule}
 	end.
 
+parse_rule( [], Cur_Ref, Type, [ {Index, or_cond, Inner_Refs} | O_Refs ] ) ->
+	I_Refs = case Cur_Ref of
+				 [] ->
+					 [ {Index, or_cond, Inner_Refs} | O_Refs ];
+				 _ ->
+					 Ind1 = length(Inner_Refs) + 1,
+					 Ref = lists:flatten( lists:reverse( Cur_Ref ) ),
+					 N_Inner_Refs = lists:append( Inner_Refs, [ {Ind1, Type, Ref} ] ),
+					 [ { Index, or_cond, N_Inner_Refs } | O_Refs ]
+			 end,
+	F_Refs = resolve_var_tokens( I_Refs, [] ),
+	{ok, F_Refs};
 parse_rule( [], Cur_Ref, Type, Refs ) ->
 	I_Refs = case Cur_Ref of
 				 [] ->
@@ -125,6 +137,17 @@ parse_rule( [], Cur_Ref, Type, Refs ) ->
 			 end,
 	F_Refs = resolve_var_tokens( I_Refs, [] ),
 	{ok, F_Refs};
+parse_rule( [C | Rest ], Cur_Ref, Type, [ {Index, or_cond, Inner_Refs} | O_Refs ] ) when C == 9 orelse C == 32 -> 
+	N_Refs = case Cur_Ref of
+				 [] ->
+					 [ {Index, or_cond, Inner_Refs} | O_Refs ];
+				 _ ->
+					 Ind1 = length(Inner_Refs) + 1,
+					 Ref = lists:flatten( lists:reverse( Cur_Ref ) ),
+					 N_Inner_Refs = lists:append( Inner_Refs, [ {Ind1, Type, Ref} ] ),
+					 [ { Index, or_cond, N_Inner_Refs } | O_Refs ]
+			 end,
+	parse_rule( Rest, [], unknown, N_Refs );
 parse_rule( [C | Rest ], Cur_Ref, Type, Refs ) when C == 9 orelse C == 32 -> 
 	case Cur_Ref of
 		[] ->
@@ -170,24 +193,43 @@ parse_rule( [40 | Rest], Cur_Ref, Type, Refs ) ->
 	Index2 = length(N_Refs) + 1,
 	F_Refs = [ { Index2, and_cond, And_Refs } | N_Refs ],
 	parse_rule( Inner_Rest, [], unknown, F_Refs );
+parse_rule( [42 | Rest], [], unknown, [ { Index, and_cond, Inner_Refs } | O_Refs ] ) ->
+	N_Ref = {Index, multi_cond, Inner_Refs },
+	F_Refs = [ N_Ref | O_Refs ],
+	parse_rule( Rest, [], unknown, F_Refs );
+parse_rule( [42 | Rest], Cur_Ref, Type, Refs ) when Type =/= unknown ->
+	%42 is the asci value for *
+	Index = length(Refs) + 1,
+	Ref = lists:flatten( lists:reverse( Cur_Ref ) ),
+	N_Ref = {Index, multi_cond, [{1, Type, Ref}] },
+	F_Refs = [ N_Ref | Refs ],
+	parse_rule( Rest, [], unknown, F_Refs );
 parse_rule( [61 | Rest], Cur_Ref, Type, Refs ) when Type =/= var_token andalso Type =/= unknown ->
 	%61 is the asci value for =
 	N_Cur_Ref = [61|Cur_Ref],
 	parse_rule( Rest, N_Cur_Ref, var_token, Refs );
-parse_rule( [124 | Rest], Cur_Ref, Type, Refs ) when Type =/= expr ->
+parse_rule( [124 | Rest], Cur_Ref, Type, [ {Index, or_cond, Inner_Refs} | O_Refs ] ) when Type =/= expr ->
 	%124 is the asci value for |
 	N_Refs = case Cur_Ref of
 				 [] ->
-					 Refs;
+					 [ {Index, or_cond, Inner_Refs} | O_Refs ];
 				 _ ->
-					 Index = length(Refs) + 1,
+					 Ind1 = length(Inner_Refs) + 1,
 					 Ref = lists:flatten( lists:reverse( Cur_Ref ) ),
-					 [ {Index, Type, Ref} | Refs]
+					 N_Inner_Refs = lists:append( Inner_Refs, [ {Ind1, Type, Ref} ] ),
+					 [ { Index, or_cond, N_Inner_Refs } | O_Refs ]
 			 end,
-	{ok, Or_Refs} = parse_rule( Rest, [], unknown, [] ),
-	Index2 = length(N_Refs) + 1,
-	F_Refs = [ { Index2, or_cond, Or_Refs } | N_Refs ],
-	parse_rule( [], [], unknown, F_Refs );
+	parse_rule( Rest, [], unknown, N_Refs );
+parse_rule( [124 | Rest], Cur_Ref, Type, [ {Index, Inner_Type, Inner_Refs} | O_Refs] ) when Type =/= expr ->
+	%124 is the asci value for |
+	N_Refs = case Cur_Ref of
+				 [] ->
+					 [ {Index, or_cond, [ {1, Inner_Type, Inner_Refs} ] } | O_Refs ];
+				 _ ->
+					 Ref = lists:flatten( lists:reverse( Cur_Ref ) ),
+					 [ {Index, or_cond, [ {1, Inner_Type, Inner_Refs}, {2, Type, Ref } ] } | O_Refs ]
+			 end,
+	parse_rule( Rest, [], unknown, N_Refs );
 parse_rule( [C | Rest ], Cur_Ref, unknown, Refs ) when (C >= $A andalso C =< $Z) ->
 	N_Cur_Ref = [C|Cur_Ref],
 	parse_rule( Rest, N_Cur_Ref, token, Refs );

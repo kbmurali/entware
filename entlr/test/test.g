@@ -1,5 +1,7 @@
 grammar test123;
 
+rule1: (script1 | script2)*;
+
 scripts: script1 | script2;
 
 script1: RULE DName=NAME { io:format( "This is generated script1 output: ~p~n", [DName] ) };
