@@ -43,6 +43,7 @@ create_rule_fun( Rule_Name, Rule_Tree, Vars, Trim_Left ) ->
 	Trim_Left_Var = get_unique_var( "Trim_Left", Vars, 0 ),
 	Input_Var = get_unique_var( "Input", Vars, 0 ),
 	Match_Vars = get_unique_var( "Vars", Vars, 0 ),
+	Matched_String = get_unique_var( "Matched_String", Vars, 0 ),
 	Remaining_Part = get_unique_var( "Remaining_Part", Vars, 0 ),
 	
 	Fun_String = entlr_template:create_rule_fun_name(Rule_Name) ++ "( " ++ Input_Var ++ ") -> \n" ++
@@ -51,28 +52,28 @@ create_rule_fun( Rule_Name, Rule_Tree, Vars, Trim_Left ) ->
 					 
 	F_String2 = case lists:keyfind( code, 2, Rule_Tree ) of
 					false ->
-						Fun_String ++ "{true, [], " ++ Match_Vars ++ "} -> \n" ++ 
-								"{true, [], " ++ Match_Vars ++ "};\n" ++
-							"{true, " ++ Remaining_Part ++ ", " ++ Match_Vars ++ "} -> \n" ++
-								"{partial, " ++ Remaining_Part ++ ", " ++ Match_Vars ++ "};\n" ++
+						Fun_String ++ "{true," ++ Matched_String ++ ", [], " ++ Match_Vars ++ "} -> \n" ++ 
+								"{true," ++ Matched_String ++ ", [], " ++ Match_Vars ++ "};\n" ++
+							"{true, " ++ Matched_String ++ ", " ++ Remaining_Part ++ ", " ++ Match_Vars ++ "} -> \n" ++
+								"{partial, " ++ Matched_String ++ ", " ++ Remaining_Part ++ ", " ++ Match_Vars ++ "};\n" ++
 							"false -> \n" ++
 								"{error, invalid_input," ++  Input_Var ++ "}" ++
 							"end.";
 					_ ->
-						Fun_String ++ "{true, [], " ++ Match_Vars ++ "} -> \n" ++
+						Fun_String ++ "{true," ++ Matched_String ++ ", [], " ++ Match_Vars ++ "} -> \n" ++
 								"try\n" ++
 									entlr_template:create_rule_execute_fun_name(Rule_Name) ++ "( " ++ Match_Vars ++ ")\n" ++
 								"catch\n" ++
 									"_:_ -> ok\n" ++
 								"end,\n" ++
-								"{true, [], " ++ Match_Vars ++ "};\n" ++
-							"{true, " ++ Remaining_Part ++ ", " ++ Match_Vars ++ "} -> \n" ++
+								"{true, " ++ Matched_String ++ ", [], " ++ Match_Vars ++ "};\n" ++
+							"{true, " ++ Matched_String ++ ", " ++ Remaining_Part ++ ", " ++ Match_Vars ++ "} -> \n" ++
 								"try\n" ++
 									entlr_template:create_rule_execute_fun_name(Rule_Name) ++ "( " ++ Match_Vars ++ ")\n" ++
 								"catch\n" ++
 									"_:_ -> ok\n" ++
 								"end,\n" ++
-								"{partial, " ++ Remaining_Part ++ ", " ++ Match_Vars ++ "};\n" ++
+								"{partial, " ++ Matched_String ++ ", " ++ Remaining_Part ++ ", " ++ Match_Vars ++ "};\n" ++
 							"false -> \n" ++
 								"{error, invalid_input," ++  Input_Var ++ "}" ++
 							"end."
@@ -88,7 +89,7 @@ create_rule_match_fun( Rule_Name, Rule_Tree ) ->
 	Tree = lists:keydelete(code, 2, Rule_Tree),
 	Fun_String = entlr_template:create_rule_match_fun_name( Rule_Name ) ++ "( Input, Trim_Left ) -> \n" ++
 					 "Rules_Tree = " ++ to_str( Tree ) ++ "," ++
-					 "process( Rules_Tree, Input, Trim_Left, [], true ).",
+					 "process( Rules_Tree, \"\", Input, Trim_Left, [], true ).",
 	
 	{ok, FT, _} = erl_scan:string( Fun_String ),
 	{ok, FF} = erl_parse:parse_form( FT ),
