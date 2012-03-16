@@ -1,9 +1,9 @@
 grammar rtes_rules_grammar;
 
 process_rule: RULE NAME
-				FACTS (FACT | COMMA)*
+				FACTS (Fact=FACT | COMMA)*
 				WHEN
-					(FACT.PROPERTY OPERATOR VALUE)*
+					Properties=(FACT.PROPERTY OPERATOR VALUE)*
 				THEN
 					ACTIONS
 				END;
