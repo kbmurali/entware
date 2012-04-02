@@ -1,8 +1,7 @@
 {application,db_entropy,
-             [{description,[]},
-              {vsn,"1"},
+             [{description,"Entrigna's Database Binding Utility"},
+              {vsn,"1.0"},
               {registered,[]},
               {applications,[kernel,stdlib]},
-              {mod,{db_entropy_app,[]}},
               {env,[]},
-              {modules,[db_entropy_app,db_entropy_sup]}]}.
+              {modules,[db_table_wrapper_util,mysql_adapter]}]}.
