@@ -19,7 +19,7 @@
 gen_mod( file, File ) ->
 	{Grammar_Name, Rules, Tokens } = entlr_grammar_parser:get_entries(file, File ),
 	Fun = fun( {Rule_Name, Rule_Spec}, Acc ) ->
-				  {ok, Rule_Tokens} = entlr_grammar_parser:parse_rule( Rule_Spec, [], unknown, [] ),
+				  {ok, Rule_Tokens} = entlr_grammar_parser:parse_rule( Rule_Spec, [], unknown, [], [] ),
 				  {ok, Resolved_Tokens } = entlr_grammar_parser:resolve_rule_tokens( Rule_Tokens, Tokens, [] ),
 				  [ {Rule_Name, Resolved_Tokens} | Acc ]
 		  end,

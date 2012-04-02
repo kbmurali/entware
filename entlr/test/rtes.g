@@ -3,7 +3,7 @@ grammar rtes_rules_grammar;
 process_rule: RULE NAME
 				FACTS (Fact=FACT | COMMA)*
 				WHEN
-					Properties=(FACT.PROPERTY OPERATOR VALUE)*
+					Property1=(FACT.PROPERTY OPERATOR VALUE) | Properties=( (AND | OR) FACT.PROPERTY OPERATOR VALUE )*
 				THEN
 					ACTIONS
 				END;
@@ -23,3 +23,5 @@ DIGIT:
 ALPHABET: 
 		('a'..'z''A'..'Z')
 		; 
+
+COMMA : ',';

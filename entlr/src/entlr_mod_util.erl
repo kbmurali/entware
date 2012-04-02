@@ -140,11 +140,25 @@ get_vars( [], Vars ) ->
 	Vars;
 get_vars( [{_,var_token, {Name, _} } | Rest ], Vars ) ->
 	get_vars( Rest, [Name | Vars ] );
+get_vars( [{_,var_expr, {Name, _} } | Rest ], Vars ) ->
+	get_vars( Rest, [Name | Vars ] );
 get_vars( [{_,and_cond, List} | Rest ], Vars ) ->
 	N_Vars = get_vars( List, Vars ),
 	get_vars( Rest, N_Vars );
+get_vars( [{_,var_and_cond, {Name,List} } | Rest ], Vars ) ->
+	N_Vars = get_vars( List, [Name | Vars] ),
+	get_vars( Rest, N_Vars );
 get_vars( [{_,or_cond, List} | Rest ], Vars ) ->
 	N_Vars = get_vars( List, Vars ),
+	get_vars( Rest, N_Vars );
+get_vars( [{_,var_or_cond, {Name,List} } | Rest ], Vars ) ->
+	N_Vars = get_vars( List, [Name | Vars] ),
+	get_vars( Rest, N_Vars );
+get_vars( [{_,multi_cond, List} | Rest ], Vars ) ->
+	N_Vars = get_vars( List, Vars ),
+	get_vars( Rest, N_Vars );
+get_vars( [{_,var_multi_cond, {Name,List} } | Rest ], Vars ) ->
+	N_Vars = get_vars( List, [Name | Vars] ),
 	get_vars( Rest, N_Vars );
 get_vars( [ _ | Rest ], Vars ) ->
 	get_vars( Rest, Vars ).

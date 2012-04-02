@@ -343,9 +343,19 @@ resolve_rule_tokens( [ {Index, expr, Expr} | Rest ], Tokens, Acc ) ->
 	Resolved_Token = {Index, expr, RE },
 	N_Acc = [ Resolved_Token | Acc ],
 	resolve_rule_tokens( Rest, Tokens, N_Acc );
+resolve_rule_tokens( [ {Index, var_expr, {Var, Expr} } | Rest ], Tokens, Acc ) ->
+	RE = entlr_util:to_re( Expr, false ),
+	Resolved_Token = {Index, var_expr, {Var, RE} },
+	N_Acc = [ Resolved_Token | Acc ],
+	resolve_rule_tokens( Rest, Tokens, N_Acc );
 resolve_rule_tokens( [ {Index, and_cond, List} | Rest ], Tokens, Acc ) ->
 	{ok, Resolved_List} = resolve_rule_tokens( List, Tokens, [] ),
 	Resolved_Entry = {Index, and_cond, Resolved_List },
+	N_Acc = [ Resolved_Entry | Acc ],
+	resolve_rule_tokens( Rest, Tokens, N_Acc );
+resolve_rule_tokens( [ {Index, var_and_cond, {Var, List} } | Rest ], Tokens, Acc ) ->
+	{ok, Resolved_List} = resolve_rule_tokens( List, Tokens, [] ),
+	Resolved_Entry = {Index, var_and_cond, {Var, Resolved_List} },
 	N_Acc = [ Resolved_Entry | Acc ],
 	resolve_rule_tokens( Rest, Tokens, N_Acc );
 resolve_rule_tokens( [ {Index, or_cond, List} | Rest ], Tokens, Acc ) ->
@@ -353,8 +363,24 @@ resolve_rule_tokens( [ {Index, or_cond, List} | Rest ], Tokens, Acc ) ->
 	Resolved_Entry = {Index, or_cond, Resolved_List },
 	N_Acc = [ Resolved_Entry | Acc ],
 	resolve_rule_tokens( Rest, Tokens, N_Acc );
+resolve_rule_tokens( [ {Index, var_or_cond, {Var, List} } | Rest ], Tokens, Acc ) ->
+	{ok, Resolved_List} = resolve_rule_tokens( List, Tokens, [] ),
+	Resolved_Entry = {Index, var_or_cond, {Var, Resolved_List} },
+	N_Acc = [ Resolved_Entry | Acc ],
+	resolve_rule_tokens( Rest, Tokens, N_Acc );
+resolve_rule_tokens( [ {Index, multi_cond, List} | Rest ], Tokens, Acc ) ->
+	{ok, Resolved_List} = resolve_rule_tokens( List, Tokens, [] ),
+	Resolved_Entry = {Index, multi_cond, Resolved_List },
+	N_Acc = [ Resolved_Entry | Acc ],
+	resolve_rule_tokens( Rest, Tokens, N_Acc );
+resolve_rule_tokens( [ {Index, var_multi_cond, {Var, List} } | Rest ], Tokens, Acc ) ->
+	{ok, Resolved_List} = resolve_rule_tokens( List, Tokens, [] ),
+	Resolved_Entry = {Index, var_multi_cond, {Var, Resolved_List} },
+	N_Acc = [ Resolved_Entry | Acc ],
+	resolve_rule_tokens( Rest, Tokens, N_Acc );
 resolve_rule_tokens( [ T | Rest ], Tokens, Acc ) ->
 	resolve_rule_tokens( Rest, Tokens, [T| Acc] ).
+
 
 
 parse_rule( [], Cur_Ref, Type, Refs, none, none, none ) ->
