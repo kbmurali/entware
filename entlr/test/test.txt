@@ -1,0 +1,29 @@
+[{attribute,1,file,
+     {"c:/Users/kbmurali/myMainGIT/entware/entlr/src/test.erl",1}},
+ {attribute,4,module,test},
+ {attribute,6,record,
+     {item,
+         [{record_field,6,{atom,6,id}},
+          {record_field,6,{atom,6,name}},
+          {record_field,6,{atom,6,manf_date}}]}},
+ {attribute,14,compile,[export_all]},
+ {function,19,rule,3,
+     [{clause,19,
+          [{var,19,'_'},
+           {match,19,{record,19,item,[]},{var,19,'Item1'}},
+           {match,19,{record,19,item,[]},{var,19,'Item2'}}],
+          [[{op,19,'==',
+                {record_field,19,{var,19,'Item1'},item,{atom,19,id}},
+                {record_field,19,{var,19,'Item2'},item,{atom,19,id}}}]],
+          [{call,20,
+               {remote,20,{atom,20,io},{atom,20,format}},
+               [{string,20,"This is test rule"}]}]}]},
+ {eof,21}]
+ 
+  rule myrule
+		FACTS (Fact=FACT | COMMA)*
+				WHEN
+					Properties=(FACT.PROPERTY OPERATOR VALUE | (AND | OR) )*
+				THEN
+					ACTIONS
+				END;

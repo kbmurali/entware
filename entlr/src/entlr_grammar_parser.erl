@@ -269,7 +269,7 @@ parse_rule( [ 123 | Rest ], Cur_Ref, Type, [{Inner_Index, Inner_Type, Inner_Refs
 							 end,
 					 [ N_Ref | Refs]
 			 end,
-	case parse_until( Rest, 125, [] ) of
+	case loop_parse_until( Rest, 125, "" ) of
 		{true, Code, [] } ->
 			Index2 = length(N_Refs) + 1,
 			F_Refs = [ {Index2, code, Code} | N_Refs ],
@@ -394,6 +394,12 @@ parse_rule( [C | Rest ], Cur_Ref, Type, Refs, Var ) when (C >= $A andalso C =< $
 parse_rule( [C | Rest ], Cur_Ref, Type, Refs, Var ) when Type =/= unknown andalso (C >= $0 andalso C =< $9) ->
 	N_Cur_Ref = [C|Cur_Ref],
 	parse_rule( Rest, N_Cur_Ref, Type, Refs, Var );
+parse_rule( [95 | Rest ], Cur_Ref, rule, Refs, Var ) ->
+	N_Cur_Ref = [95|Cur_Ref],
+	parse_rule( Rest, N_Cur_Ref, rule, Refs, Var );
+parse_rule( [95 | Rest ], Cur_Ref, token, Refs, Var ) ->
+	N_Cur_Ref = [95|Cur_Ref],
+	parse_rule( Rest, N_Cur_Ref, token, Refs, Var );
 parse_rule( [C | Rest ], Cur_Ref, _, Refs, Var ) ->
 	N_Cur_Ref = [C|Cur_Ref],
 	parse_rule( Rest, N_Cur_Ref, expr, Refs, Var ).
@@ -419,6 +425,21 @@ ignore_until( [C | Rest], C ) ->
 	{ok, Rest};
 ignore_until( [_ | Rest], C ) ->
 	ignore_until( Rest, C ).
+
+loop_parse_until( [], _C, Previous_Content ) ->
+	{true, Previous_Content, [] };
+loop_parse_until( Entries, C, Previous_Content ) ->
+	case parse_until( Entries, C, [] ) of
+		{true, Content, [] } ->
+			N_Content = lists:append(Previous_Content, Content ),
+			{true, N_Content, [] };
+		{true, Content, Rest } ->
+			N_Content1 = lists:append( Content, lists:flatten( [C] ) ),
+			N_Content2 = lists:append(Previous_Content, N_Content1 ),
+			loop_parse_until( Rest, C, N_Content2 );
+		Err_Result ->
+			Err_Result
+	end.
 
 parse_until( [], _, Acc ) ->
 	{false, lists:reverse(Acc), [] };
@@ -527,7 +548,7 @@ read( Dev, Cur_Location, Cur_Line, Acc, none, none, none ) ->
 		{ok, C } ->
 			read( Dev, Cur_Location + 1, Cur_Line, Acc, C, none, none );
 		continue ->
-			read( Dev, Cur_Location + 1, Cur_Line, Acc, none, none, none );
+			read( Dev, Cur_Location + 1, Cur_Line, Acc, " ", none, none );
 		eof ->
 			Line = lists:concat( lists:reverse( Cur_Line ) ),
 			N_Acc = [Line | Acc ],
@@ -543,14 +564,40 @@ read( Dev, Cur_Location, Cur_Line, Acc, "{", none, none ) ->
 			N_Lines = [ L || L <- N_Acc, L =/= [] ],
 			lists:reverse( N_Lines )
 	end;
+read( Dev, Cur_Location, Cur_Line, Acc, " ", none, none ) ->
+	case eval_read( Dev, Cur_Location ) of
+		{ok, C } ->
+			read( Dev, Cur_Location + 1, Cur_Line, Acc, " ", C, none );
+		continue ->
+			read( Dev, Cur_Location + 1, Cur_Line, Acc, " ", none, none );
+		eof ->
+			New_Line = [ " " | Cur_Line ],
+			Line = lists:concat( lists:reverse( New_Line ) ),
+			N_Acc = [Line | Acc ],
+			N_Lines = [ L || L <- N_Acc, L =/= [] ],
+			lists:reverse( N_Lines )
+	end;
 read( Dev, Cur_Location, Cur_Line, Acc, C1, none, none ) ->
 	case eval_read( Dev, Cur_Location ) of
 		{ok, C } ->
 			read( Dev, Cur_Location + 1, Cur_Line, Acc, C1, C, none );
 		continue ->
-			read( Dev, Cur_Location + 1, Cur_Line, Acc, C1, none, none );
+			read( Dev, Cur_Location + 1, Cur_Line, Acc, C1, " ", none );
 		eof ->
 			New_Line = [ C1 | Cur_Line ],
+			Line = lists:concat( lists:reverse( New_Line ) ),
+			N_Acc = [Line | Acc ],
+			N_Lines = [ L || L <- N_Acc, L =/= [] ],
+			lists:reverse( N_Lines )
+	end;
+read( Dev, Cur_Location, Cur_Line, Acc, C1, " ", none ) ->
+	case eval_read( Dev, Cur_Location ) of
+		{ok, C } ->
+			read( Dev, Cur_Location + 1, Cur_Line, Acc, C1, " ", C );
+		continue ->
+			read( Dev, Cur_Location + 1, Cur_Line, Acc, C1, " ", none );
+		eof ->
+			New_Line =[ " " | [ C1 | Cur_Line ] ],
 			Line = lists:concat( lists:reverse( New_Line ) ),
 			N_Acc = [Line | Acc ],
 			N_Lines = [ L || L <- N_Acc, L =/= [] ],
@@ -561,7 +608,7 @@ read( Dev, Cur_Location, Cur_Line, Acc, C1, C2, none ) ->
 		{ok, C } ->
 			read( Dev, Cur_Location + 1, Cur_Line, Acc, C1, C2, C );
 		continue ->
-			read( Dev, Cur_Location + 1, Cur_Line, Acc, C1, C2, none );
+			read( Dev, Cur_Location + 1, Cur_Line, Acc, C1, C2, " " );
 		eof ->
 			New_Line =[ C2 | [ C1 | Cur_Line ] ],
 			Line = lists:concat( lists:reverse( New_Line ) ),
@@ -584,6 +631,12 @@ read( Dev, Cur_Location, Cur_Line, Acc, C1, ";", C3 ) ->
 	Line = lists:concat( lists:reverse( [ C1 | Cur_Line ] ) ),
 	N_Acc = [Line | Acc ],
 	read( Dev, Cur_Location, [], N_Acc, C3, none, none );
+
+read( Dev, Cur_Location, Cur_Line, Acc, C1, C2, ";" ) ->
+	Line = lists:concat( lists:reverse( [C2 | [ C1 | Cur_Line ] ] ) ),
+	N_Acc = [Line | Acc ],
+	read( Dev, Cur_Location, [], N_Acc, none, none, none );
+
 read( Dev, Cur_Location, Cur_Line, Acc, "'", "{", "'" ) ->
 	New_Line = [ "'" | [ "{" | [ "'" | Cur_Line ] ] ],
 	read( Dev, Cur_Location, New_Line, Acc, none, none, none );
@@ -622,9 +675,39 @@ inner_read( Dev, Cur_Location, Cur_Line, Acc, none, none, none ) ->
 		{ok, C } ->
 			inner_read( Dev, Cur_Location + 1, Cur_Line, Acc, C, none, none );
 		continue ->
-			inner_read( Dev, Cur_Location + 1, Cur_Line, Acc, none, none, none );
+			inner_read( Dev, Cur_Location + 1, Cur_Line, Acc, " ", none, none );
 		eof ->
 			Line = lists:concat( lists:reverse( Cur_Line ) ),
+			N_Acc = [Line | Acc ],
+			{eof, {Dev, Cur_Location, N_Acc, none, none, none } }
+	end;
+inner_read( Dev, Cur_Location, Cur_Line, Acc, "{", none, none ) ->
+	Fun = fun( E, I_Acc ) ->
+				  F = lists:flatten( [E] ),
+				  [F | I_Acc]
+		  end,
+	N_Line = [ "{" | Cur_Line ],
+	case inner_read( Dev, Cur_Location, [], [], none, none, none ) of
+		{ok, {Dev1, New_Location, N_Acc, C1, C2, C3 } } ->
+			[Inner_Line | _ ] = N_Acc,
+			New_Line = lists:foldl(Fun, N_Line, Inner_Line ),
+			inner_read( Dev1, New_Location, New_Line, Acc, C1, C2, C3 );
+		{eof, {Dev1, New_Location, N_Acc, C1,C2,C3 } } ->
+			[Inner_Line | _ ] = N_Acc,
+			New_Line = lists:foldl(Fun, N_Line, Inner_Line ),
+			Line = lists:concat( lists:reverse( New_Line) ),
+			F_Acc = [Line | Acc ], 
+			{eof, {Dev1, New_Location, F_Acc, C1,C2,C3 } }
+	end;
+inner_read( Dev, Cur_Location, Cur_Line, Acc, " ", none, none ) ->
+	case eval_read( Dev, Cur_Location ) of
+		{ok, C } ->
+			inner_read( Dev, Cur_Location + 1, Cur_Line, Acc, " ", C, none );
+		continue ->
+			inner_read( Dev, Cur_Location + 1, Cur_Line, Acc, " ", none, none );
+		eof ->
+			New_Line = [ " " | Cur_Line ],
+			Line = lists:concat( lists:reverse( New_Line ) ),
 			N_Acc = [Line | Acc ],
 			{eof, {Dev, Cur_Location, N_Acc, none, none, none } }
 	end;
@@ -633,9 +716,21 @@ inner_read( Dev, Cur_Location, Cur_Line, Acc, C1, none, none ) ->
 		{ok, C } ->
 			inner_read( Dev, Cur_Location + 1, Cur_Line, Acc, C1, C, none );
 		continue ->
-			inner_read( Dev, Cur_Location + 1, Cur_Line, Acc, C1, none, none );
+			inner_read( Dev, Cur_Location + 1, Cur_Line, Acc, C1, " ", none );
 		eof ->
 			New_Line = [ C1 | Cur_Line ],
+			Line = lists:concat( lists:reverse( New_Line ) ),
+			N_Acc = [Line | Acc ],
+			{eof, {Dev, Cur_Location, N_Acc, none, none, none } }
+	end;
+inner_read( Dev, Cur_Location, Cur_Line, Acc, C1, " ", none ) ->
+	case eval_read( Dev, Cur_Location ) of
+		{ok, C } ->
+			inner_read( Dev, Cur_Location + 1, Cur_Line, Acc, C1, " ", C );
+		continue ->
+			inner_read( Dev, Cur_Location + 1, Cur_Line, Acc, C1, " ", none );
+		eof ->
+			New_Line =[ " " | [ C1 | Cur_Line ] ],
 			Line = lists:concat( lists:reverse( New_Line ) ),
 			N_Acc = [Line | Acc ],
 			{eof, {Dev, Cur_Location, N_Acc, none, none, none } }
@@ -645,12 +740,54 @@ inner_read( Dev, Cur_Location, Cur_Line, Acc, C1, C2, none ) ->
 		{ok, C } ->
 			inner_read( Dev, Cur_Location + 1, Cur_Line, Acc, C1, C2, C );
 		continue ->
-			inner_read( Dev, Cur_Location + 1, Cur_Line, Acc, C1, C2, none );
+			inner_read( Dev, Cur_Location + 1, Cur_Line, Acc, C1, C2, " " );
 		eof ->
 			New_Line =[ C2 | [ C1 | Cur_Line ] ],
 			Line = lists:concat( lists:reverse( New_Line ) ),
 			N_Acc = [Line | Acc ],
 			{eof, {Dev, Cur_Location, N_Acc, none, none, none } }
+	end;
+inner_read( Dev, Cur_Location, Cur_Line, Acc, "'", "{", "'" ) ->
+	New_Line = [ "'" | [ "{" | [ "'" | Cur_Line ] ] ],
+	inner_read( Dev, Cur_Location, New_Line, Acc, none, none, none );
+inner_read( Dev, Cur_Location, Cur_Line, Acc, "'", "{", C ) ->
+	Fun = fun( E, I_Acc ) ->
+				  F = lists:flatten( [E] ),
+				  [F | I_Acc]
+		  end,
+	N_Line = [ C | [ "{" | [ "'" | Cur_Line ] ] ],
+	case inner_read( Dev, Cur_Location, [], [], none, none, none ) of
+		{ok, {Dev1, New_Location, N_Acc, C1, C2, C3 } } ->
+			[Inner_Line | _ ] = N_Acc,
+			New_Line = lists:foldl(Fun, N_Line, Inner_Line ),
+			inner_read( Dev1, New_Location, New_Line, Acc, C1, C2, C3 );
+		{eof, {Dev1, New_Location, N_Acc, C1,C2,C3 } } ->
+			[Inner_Line | _ ] = N_Acc,
+			New_Line = lists:foldl(Fun, N_Line, Inner_Line ),
+			Line = lists:concat( lists:reverse(New_Line) ),
+			F_Acc = [Line | Acc ],  
+			{eof, {Dev1, New_Location, F_Acc, C1,C2,C3 } }
+	end;
+inner_read( Dev, Cur_Location, Cur_Line, Acc, C1, "'", "{" ) ->
+	New_Line = [ C1 | Cur_Line ],
+	inner_read( Dev, Cur_Location, New_Line, Acc, "'", "{", none );
+inner_read( Dev, Cur_Location, Cur_Line, Acc, E1, E2, "{" ) ->
+	Fun = fun( E, I_Acc ) ->
+				  F = lists:flatten( [E] ),
+				  [F | I_Acc]
+		  end,
+	N_Line = [ "{" | [ E2 | [ E1 | Cur_Line ] ] ],
+	case inner_read( Dev, Cur_Location, [], [], none, none, none ) of
+		{ok, {Dev1, New_Location, N_Acc, C1, C2, C3 } } ->
+			[Inner_Line | _ ] = N_Acc,
+			New_Line = lists:foldl(Fun, N_Line, Inner_Line ),
+			inner_read( Dev1, New_Location, New_Line, Acc, C1, C2, C3 );
+		{eof, {Dev1, New_Location, N_Acc, C1,C2,C3 } } ->
+			[Inner_Line | _ ] = N_Acc,
+			New_Line = lists:foldl(Fun, N_Line, Inner_Line ),
+			Line = lists:concat( lists:reverse(New_Line) ),
+			F_Acc = [Line | Acc ], 
+			{eof, {Dev1, New_Location, F_Acc, C1,C2,C3 } }
 	end;
 inner_read( Dev, Cur_Location, Cur_Line, Acc, "}", C2, C3 ) ->
 	Line = lists:concat( lists:reverse( [ "}" | Cur_Line ] ) ),

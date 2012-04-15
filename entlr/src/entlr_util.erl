@@ -12,11 +12,19 @@
 -export([match/2]).
 -export([to_re/2]).
 -export([gen_mod/2]).
+-export([gen_mod_form/2]).
+-export([parse_by_line_feed/6]).
 
 %%
 %% API Functions
 %%
 gen_mod( file, File ) ->
+	Form = gen_mod_form( file, File ),
+	{ok, Mod, Bin} = compile:forms( Form ),
+	code:load_binary( Mod, "nofile", Bin ),
+	Mod.
+
+gen_mod_form( file, File ) ->
 	{Grammar_Name, Rules, Tokens } = entlr_grammar_parser:get_entries(file, File ),
 	Fun = fun( {Rule_Name, Rule_Spec}, Acc ) ->
 				  {ok, Rule_Tokens} = entlr_grammar_parser:parse_rule( Rule_Spec, [], unknown, [], [] ),
@@ -36,7 +44,9 @@ match( Input, RE ) ->
 	end.
 
 to_re( Input, Shorten_WS ) ->
-	Replace_Ts = [ { "'\\('", ?CURLY1 },
+	Replace_Ts = [ { "'\\.'", "\\\\." },
+				   { "'\\|'", "\\\\|" },
+				   { "'\\('", ?CURLY1 },
 				   { "'\\)'", ?CURLY2 },
 				   { "'\\['", "\\\\[" },
 				   { "'\\]'", "\\\\]" },
@@ -44,7 +54,6 @@ to_re( Input, Shorten_WS ) ->
 				   { "'\\?'", "\\\\?" },
 				   { "'\\*'", "\\\\*" },
 				   { "'\\-'", "\\\\-" },
-				   { "'\\.'", "\\\\." },
 				   { "\\(", "[" },
 				   { "\\)", "]" },
 				   { "[\\.]{2}", "-" },
@@ -69,3 +78,33 @@ replace( [], R ) ->
 replace( [ {From, To} | Rest], Input ) ->
 	R = re:replace( Input, From, To, [global, {return, list}] ),
 	replace( Rest, R ).
+
+parse_by_line_feed( file, Filename, Mod, Func, Ignore_Header, none ) ->
+	Interceptor_Fun = fun default_line_feed_interceptor/1,
+	
+	parse_by_line_feed( file, Filename, Mod, Func, Ignore_Header, Interceptor_Fun );
+parse_by_line_feed( file, Filename, Mod, Func, Ignore_Header, Interceptor_Fun ) ->
+	{ok, Device} = file:open(Filename, [read] ),
+	Result = parse_by_line_feed( iodevice, Device, Mod, Func, Ignore_Header, Interceptor_Fun ),
+	file:close( Device ),
+	Result;
+parse_by_line_feed( iodevice, Device, Mod, Func, Ignore_Header, none ) ->
+	Interceptor_Fun = fun default_line_feed_interceptor/1,
+	parse_by_line_feed( iodevice, Device, Mod, Func, Ignore_Header, Interceptor_Fun );
+parse_by_line_feed( iodevice, Device, Mod, Func, Ignore_Header, Interceptor_Fun ) ->
+	case file:read_line( Device ) of
+		eof ->
+			ok;
+		{ok, Line} ->
+			case Ignore_Header of
+				true ->
+					ok;
+				false ->
+					F_Line = Interceptor_Fun( Line ),
+					Mod:Func( F_Line )
+			end,
+			parse_by_line_feed( iodevice, Device, Mod, Func, false, Interceptor_Fun )
+	end.
+
+default_line_feed_interceptor( Line ) ->
+	re:replace(Line, "\n$", "", [ {return, list }, global ] ).
